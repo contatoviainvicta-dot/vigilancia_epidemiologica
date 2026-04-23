@@ -1,202 +1,169 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import sys
-import os
-
-# Garantir path correto (evita erro no Streamlit Cloud)
-sys.path.append(os.path.abspath(os.path.dirname(__file__)))
+import io
 
 st.set_page_config(page_title="Vigilância - Trânsito", layout="wide")
 
-st.title("🚗 Monitoramento Epidemiológico de Mortes no Trânsito")
+st.title("🚗 Monitoramento de Mortalidade por Acidentes de Trânsito")
+st.markdown("Análise baseada em dados do SIM/DATASUS (TABNET ou estruturados)")
 
-st.markdown("""
-Sistema para análise de mortalidade por acidentes de trânsito e associação com álcool e drogas.
-Fonte recomendada: SIM/DATASUS (TABNET)
-""")
-arquivo = st.file_uploader("Envie o CSV", type=["csv", "xlsx"])
-
-arquivo = st.file_uploader("Envie o arquivo", type=["csv", "xlsx"])
+# -----------------------------
+# UPLOAD
+# -----------------------------
+arquivo = st.file_uploader("Envie o arquivo (CSV ou Excel)", type=["csv", "xlsx"])
 
 if arquivo is None:
     st.info("Aguardando upload do arquivo...")
     st.stop()
 
-# Agora é seguro usar
+# -----------------------------
+# DEBUG (opcional)
+# -----------------------------
+st.write("📄 Nome:", arquivo.name)
+st.write("📦 Tipo:", arquivo.type)
 
-# Ler bytes SEM perder o arquivo
-conteudo = arquivo.getvalue()
-
-st.write("Nome:", arquivo.name)
-st.write("Tipo:", arquivo.type)
-st.write("Primeiros bytes:", conteudo[:100])
-
-# Mostrar primeiros bytes (debug real)
-conteudo = arquivo.read(200)
-st.write("Primeiros bytes:", conteudo[:100])
-
-# Resetar ponteiro
-arquivo.seek(0)
-# Upload
-arquivo = st.file_uploader("Envie o CSV (SIM/TABNET ou estruturado)", type=["csv"])
-
-# Tipo de dado
-tipo = st.selectbox("Tipo de base", ["Estruturado", "TABNET"])
+conteudo_bytes = arquivo.getvalue()
 
 # -----------------------------
-# FUNÇÕES
+# FUNÇÃO PRINCIPAL DE LEITURA
 # -----------------------------
+def carregar_dados(conteudo_bytes, nome_arquivo):
+    
+    # 1. Tentar Excel direto
+    try:
+        df = pd.read_excel(io.BytesIO(conteudo_bytes))
+        if df.shape[1] > 1:
+            return df
+    except:
+        pass
 
-def tratar_tabnet(arquivo):
-    df = pd.read_csv(arquivo, sep=';', encoding='latin-1')
-    df = df.dropna(axis=1, how='all')
-    df = df[~df.iloc[:,0].astype(str).str.contains("Total", case=False)]
-    df = df.rename(columns={df.columns[0]: "categoria"})
+    # 2. Decodificar texto
+    texto = None
+    for enc in ['latin-1', 'utf-8', 'cp1252']:
+        try:
+            texto = conteudo_bytes.decode(enc)
+            break
+        except:
+            continue
 
-    df = df.melt(
-        id_vars="categoria",
-        var_name="variavel",
-        value_name="valor"
-    )
+    if texto is None:
+        raise Exception("Não foi possível decodificar o arquivo.")
 
-    df['valor'] = pd.to_numeric(df['valor'], errors='coerce')
-    return df.dropna()
+    linhas = texto.splitlines()
 
-def carregar_estruturado(arquivo):
-    import pandas as pd
-    import io
-
-    conteudo = arquivo.getvalue().decode('latin-1')
-
-    linhas = conteudo.splitlines()
-
-    # Encontrar linha onde começa a tabela (header real)
+    # 3. Detectar TABNET (pular cabeçalho sujo)
     inicio_dados = 0
     for i, linha in enumerate(linhas):
         if "Munic" in linha or "Município" in linha:
             inicio_dados = i
             break
 
-    # Reconstruir apenas a parte útil
     dados_limpos = "\n".join(linhas[inicio_dados:])
 
-    # Ler como CSV
-    df = pd.read_csv(io.StringIO(dados_limpos), sep=';')
+    # 4. Tentar CSV com ;
+    try:
+        df = pd.read_csv(io.StringIO(dados_limpos), sep=';')
+        if df.shape[1] > 1:
+            return df
+    except:
+        pass
 
-    return df
-def filtrar_transito(df):
-    return df[df['cid'].str.startswith('V', na=False)]
+    # 5. Tentar CSV com ,
+    try:
+        df = pd.read_csv(io.StringIO(dados_limpos), sep=',')
+        if df.shape[1] > 1:
+            return df
+    except:
+        pass
 
-def marcar_alcool_drogas(df):
-    df['alcool'] = df['causa_associada'].str.contains('F10', na=False)
-    df['drogas'] = df['causa_associada'].str.contains('F1', na=False)
-    df['alcool_ou_drogas'] = df['alcool'] | df['drogas']
-    return df
-
-def calcular_metricas(df):
-    total = len(df)
-    alcool = df['alcool'].sum()
-    drogas = df['drogas'].sum()
-    ambos = df['alcool_ou_drogas'].sum()
-
-    prop = (ambos / total) * 100 if total > 0 else 0
-
-    return total, alcool, drogas, ambos, prop
+    raise Exception("Formato não reconhecido.")
 
 # -----------------------------
-# PROCESSAMENTO
+# CARREGAMENTO
 # -----------------------------
+try:
+    df = carregar_dados(conteudo_bytes, arquivo.name)
+except Exception as e:
+    st.error(f"Erro ao carregar arquivo: {e}")
+    st.stop()
 
-if arquivo:
+# -----------------------------
+# VISUALIZAÇÃO INICIAL
+# -----------------------------
+st.subheader("🔎 Dados carregados")
 
-    if tipo == "TABNET":
-        st.warning("Modo TABNET: análise limitada a tabelas agregadas")
-        df = tratar_tabnet(arquivo)
-        st.dataframe(df)
+st.write("Shape:", df.shape)
+st.write("Colunas:", df.columns.tolist())
 
-    else:
-        df = carregar_estruturado(arquivo)
+st.dataframe(df.head())
 
-        st.subheader("🔎 Dados carregados")
-        st.dataframe(df.head())
+# -----------------------------
+# ANÁLISE AUTOMÁTICA (TABNET)
+# -----------------------------
+st.subheader("📊 Análise descritiva")
 
-        # Verificação mínima
-        colunas_necessarias = ['cid', 'causa_associada']
-        if not all(col in df.columns for col in colunas_necessarias):
-            st.error("O CSV precisa conter colunas: cid e causa_associada")
-            st.stop()
+colunas = df.columns.tolist()
 
-        # Filtrar trânsito
-        df_transito = filtrar_transito(df)
+if len(colunas) >= 2:
+    x_col = colunas[0]
+    y_col = colunas[1]
 
-        # Marcar álcool/drogas
-        df_transito = marcar_alcool_drogas(df_transito)
+    # Tentar converter valores
+    df[y_col] = pd.to_numeric(df[y_col], errors='coerce')
 
-        # Métricas
-        total, alcool, drogas, ambos, prop = calcular_metricas(df_transito)
+    fig = px.bar(
+        df,
+        x=x_col,
+        y=y_col,
+        title=f"{y_col} por {x_col}"
+    )
 
-        st.subheader("📊 Indicadores principais")
-
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Óbitos por trânsito", total)
-        col2.metric("Álcool associado", alcool)
-        col3.metric("Drogas associadas", drogas)
-
-        st.metric("Álcool ou drogas (%)", f"{prop:.2f}%")
-
-        # -----------------------------
-        # GRÁFICOS
-        # -----------------------------
-
-        st.subheader("📈 Distribuição das associações")
-
-        resumo = pd.DataFrame({
-            'Categoria': ['Álcool', 'Drogas', 'Álcool ou drogas'],
-            'Casos': [alcool, drogas, ambos]
-        })
-
-        fig = px.bar(resumo, x='Categoria', y='Casos', title="Associação com substâncias")
-        st.plotly_chart(fig, use_container_width=True)
-
-        # Série temporal (se existir data)
-        if 'data' in df_transito.columns:
-            st.subheader("📅 Curva temporal")
-
-            df_transito['data'] = pd.to_datetime(df_transito['data'], errors='coerce')
-            serie = df_transito.groupby('data').size().reset_index(name='casos')
-
-            fig2 = px.line(serie, x='data', y='casos', title="Óbitos ao longo do tempo")
-            st.plotly_chart(fig2, use_container_width=True)
-
-        # -----------------------------
-        # NOTA EPIDEMIOLÓGICA AUTOMÁTICA
-        # -----------------------------
-
-        st.subheader("🧾 Nota Epidemiológica")
-
-        if st.button("Gerar Nota"):
-            texto = f"""
-NOTA EPIDEMIOLÓGICA
-
-Foram identificados {total} óbitos por acidentes de transporte terrestre (CID-10 V01–V99) no período analisado.
-
-Dentre estes:
-- {alcool} ({(alcool/total*100 if total>0 else 0):.2f}%) apresentaram associação com álcool (F10)
-- {drogas} ({(drogas/total*100 if total>0 else 0):.2f}%) com outras drogas (F11–F19)
-- {ambos} ({prop:.2f}%) com álcool ou drogas
-
-Os achados sugerem relevante participação de substâncias psicoativas na mortalidade por trânsito.
-
-LIMITAÇÕES:
-- Subnotificação de álcool e drogas no SIM
-- Possível ausência de exames toxicológicos
-
-IMPLICAÇÕES:
-- Reforço de políticas de fiscalização (Lei Seca)
-- Estratégias de prevenção ao uso de substâncias ao volante
-"""
-            st.text_area("Texto gerado", texto, height=300)
+    st.plotly_chart(fig, use_container_width=True)
 
 else:
-    st.info("Envie um arquivo CSV para iniciar a análise")
+    st.warning("Não foi possível identificar colunas suficientes para análise.")
+
+# -----------------------------
+# TABELA RESUMO
+# -----------------------------
+st.subheader("📈 Estatísticas")
+
+try:
+    total = df[y_col].sum()
+    media = df[y_col].mean()
+
+    col1, col2 = st.columns(2)
+    col1.metric("Total", int(total))
+    col2.metric("Média", round(media, 2))
+
+except:
+    st.warning("Não foi possível calcular estatísticas.")
+
+# -----------------------------
+# NOTA EPIDEMIOLÓGICA
+# -----------------------------
+st.subheader("🧾 Nota Epidemiológica")
+
+if st.button("Gerar Nota"):
+    texto = f"""
+NOTA EPIDEMIOLÓGICA
+
+Foram analisados dados de mortalidade por acidentes de trânsito provenientes do DATASUS.
+
+Total de registros: {df.shape[0]}
+Total de óbitos: {int(total) if 'total' in locals() else 'N/A'}
+
+Observa-se distribuição variável entre categorias analisadas.
+
+LIMITAÇÕES:
+- Dados agregados (TABNET)
+- Possível subnotificação
+- Ausência de variáveis individuais (ex: álcool/drogas)
+
+IMPLICAÇÕES:
+- Monitoramento contínuo
+- Apoio a políticas públicas de segurança no trânsito
+"""
+
+    st.text_area("Texto gerado", texto, height=300)
