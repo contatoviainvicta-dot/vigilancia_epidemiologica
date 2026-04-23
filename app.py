@@ -1,199 +1,131 @@
-import streamlit as st
 import pandas as pd
-import plotly.express as px
-import io
+import matplotlib.pyplot as plt
+import seaborn as sns
+from pathlib import Path
 
-# =====================================
-# CONFIG
-# =====================================
-st.set_page_config(page_title="Vigilância - Trânsito", layout="wide")
+# =========================
+# CONFIGURAÇÕES INICIAIS
+# =========================
+DATA_PATH = Path("data")
 
-st.title("🚗 Monitoramento de Mortalidade por Acidentes de Trânsito")
-st.markdown("Dados do SIM/DATASUS (TABNET ou estruturados)")
+doencas = {
+    "Hanseníase": "hanseniase.csv",
+    "Tuberculose": "tuberculose.csv",
+    "Leishmaniose Visceral": "leishmaniose_visceral.csv",
+    "Leishmaniose Tegumentar": "leishmaniose_tegumentar.csv"
+}
 
-# =====================================
-# FUNÇÕES
-# =====================================
+# =========================
+# FUNÇÃO PARA LIMPEZA
+# =========================
+def carregar_dados(arquivo):
+    df = pd.read_csv(DATA_PATH / arquivo, sep=";", encoding="latin1")
 
-def carregar_dados(conteudo_bytes):
-    try:
-        df = pd.read_excel(io.BytesIO(conteudo_bytes))
-        if df.shape[1] > 1:
-            return df
-    except:
-        pass
+    # Remove colunas desnecessárias comuns do TabNet
+    df = df.loc[:, ~df.columns.str.contains("^Unnamed")]
 
-    for enc in ['latin-1', 'utf-8', 'cp1252']:
-        try:
-            texto = conteudo_bytes.decode(enc)
-            break
-        except:
-            continue
-    else:
-        raise Exception("Erro ao decodificar arquivo")
+    # Padroniza nomes
+    df.columns = df.columns.str.strip()
 
-    linhas = texto.splitlines()
-
-    for i, linha in enumerate(linhas):
-        if linha.count(';') >= 1:
-            inicio = i
-            break
-    else:
-        raise Exception("Tabela não encontrada")
-
-    dados_limpos = "\n".join(linhas[inicio:])
-    return pd.read_csv(io.StringIO(dados_limpos), sep=';')
+    return df
 
 
-def transformar_tabnet(df):
-    df = df.copy()
-    df = df[~df.iloc[:, 0].astype(str).str.contains("Total", case=False)]
-    df = df.rename(columns={df.columns[0]: "categoria"})
+# =========================
+# TRANSFORMAÇÃO DOS DADOS
+# =========================
+def transformar_para_longo(df):
+    # Assume que colunas são anos (ex: 2015, 2016...)
+    df_long = df.melt(id_vars=[df.columns[0]], var_name="Ano", value_name="Casos")
 
-    df = df.melt(
-        id_vars="categoria",
-        var_name="ano",
-        value_name="obitos"
-    )
+    df_long.rename(columns={df.columns[0]: "Categoria"}, inplace=True)
 
-    df["obitos"] = pd.to_numeric(df["obitos"], errors="coerce")
-    return df.dropna()
+    df_long["Ano"] = pd.to_numeric(df_long["Ano"], errors="coerce")
+    df_long["Casos"] = pd.to_numeric(df_long["Casos"], errors="coerce")
 
+    df_long.dropna(inplace=True)
 
-def preparar_mes(df):
-    ordem = [
-        "Janeiro","Fevereiro","Março","Abril","Maio","Junho",
-        "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"
-    ]
-
-    df_mes = (
-        df.groupby("categoria")["obitos"]
-        .sum()
-        .reset_index()
-    )
-
-    df_mes["categoria"] = pd.Categorical(df_mes["categoria"], categories=ordem, ordered=True)
-    return df_mes.sort_values("categoria")
+    return df_long
 
 
-# =====================================
-# UPLOAD
-# =====================================
-arquivo = st.file_uploader("Envie o arquivo (CSV ou Excel)", type=["csv", "xlsx"])
+# =========================
+# ANÁLISE TEMPORAL
+# =========================
+def analisar_tendencia(df, nome_doenca):
+    df_total = df.groupby("Ano")["Casos"].sum().reset_index()
 
-if arquivo is None:
-    st.stop()
+    plt.figure(figsize=(10, 5))
+    sns.lineplot(data=df_total, x="Ano", y="Casos", marker="o")
 
-conteudo = arquivo.getvalue()
+    plt.title(f"Tendência Temporal - {nome_doenca} (DF)")
+    plt.xlabel("Ano")
+    plt.ylabel("Número de Casos")
+    plt.grid()
 
-# =====================================
-# CARREGAMENTO
-# =====================================
-try:
-    df = carregar_dados(conteudo)
-except Exception as e:
-    st.error(f"Erro: {e}")
-    st.stop()
+    plt.tight_layout()
+    plt.show()
 
-# Detectar TABNET
-if df.shape[1] > 3:
-    st.info("Formato TABNET detectado")
-    df = transformar_tabnet(df)
+    return df_total
 
-# =====================================
-# COLUNAS
-# =====================================
-x_col = "categoria"
-y_col = "obitos"
 
-# =====================================
-# FILTRO
-# =====================================
-st.subheader("🔍 Filtro")
-filtro = st.text_input("Filtrar")
+# =========================
+# PERFIL EPIDEMIOLÓGICO
+# =========================
+def perfil_epidemiologico(df, nome_doenca):
+    top = df.groupby("Categoria")["Casos"].sum().sort_values(ascending=False).head(10)
 
-df = df[df[x_col].astype(str).str.contains(filtro, case=False, na=False)]
+    plt.figure(figsize=(10, 5))
+    sns.barplot(x=top.values, y=top.index)
 
-# =====================================
-# INDICADORES
-# =====================================
-st.subheader("📊 Indicadores")
+    plt.title(f"Perfil Epidemiológico - {nome_doenca}")
+    plt.xlabel("Casos")
+    plt.ylabel("Categoria")
 
-pop = st.number_input("População", value=3000000)
+    plt.tight_layout()
+    plt.show()
 
-total = df[y_col].sum()
-media = df[y_col].mean()
-taxa = (total / pop) * 100000 if pop > 0 else 0
 
-c1, c2, c3 = st.columns(3)
-c1.metric("Total", int(total))
-c2.metric("Média", round(media, 2))
-c3.metric("Taxa/100 mil", f"{taxa:.2f}")
+# =========================
+# EXECUÇÃO PRINCIPAL
+# =========================
+def main():
+    resultados = {}
 
-# =====================================
-# DISTRIBUIÇÃO MENSAL
-# =====================================
-st.subheader("📅 Distribuição por mês")
+    for nome, arquivo in doencas.items():
+        print(f"\n🔎 Analisando {nome}...")
 
-df_mes = preparar_mes(df)
-st.dataframe(df_mes)
+        df = carregar_dados(arquivo)
+        df_long = transformar_para_longo(df)
 
-fig_mes = px.bar(df_mes, x="categoria", y="obitos")
-st.plotly_chart(fig_mes, use_container_width=True)
+        tendencia = analisar_tendencia(df_long, nome)
+        perfil_epidemiologico(df_long, nome)
 
-# =====================================
-# RANKING
-# =====================================
-st.subheader("🔝 Ranking")
+        resultados[nome] = tendencia
 
-ranking = (
-    df.groupby("categoria")["obitos"]
-    .sum()
-    .sort_values(ascending=False)
-    .head(10)
-    .reset_index()
-)
+    # =========================
+    # COMPARAÇÃO ENTRE DOENÇAS
+    # =========================
+    print("\n📊 Comparando doenças...")
 
-st.dataframe(ranking)
+    df_comparado = pd.DataFrame()
 
-# =====================================
-# ALERTA
-# =====================================
-limite = df[y_col].mean() + 2 * df[y_col].std()
+    for nome, df in resultados.items():
+        df_temp = df.copy()
+        df_temp.rename(columns={"Casos": nome}, inplace=True)
 
-if df[y_col].max() > limite:
-    st.error("⚠️ Possível concentração elevada detectada")
+        if df_comparado.empty:
+            df_comparado = df_temp
+        else:
+            df_comparado = pd.merge(df_comparado, df_temp, on="Ano", how="outer")
 
-# =====================================
-# PROPORÇÃO (CORRIGIDO)
-# =====================================
-st.subheader("🥧 Proporção")
+    df_comparado.set_index("Ano").plot(figsize=(10, 6), marker="o")
 
-fig_pie = px.pie(
-    ranking,
-    names="categoria",
-    values="obitos"
-)
+    plt.title("Comparação entre Doenças Negligenciadas - DF")
+    plt.ylabel("Casos")
+    plt.grid()
 
-st.plotly_chart(fig_pie)
+    plt.tight_layout()
+    plt.show()
 
-# =====================================
-# NOTA
-# =====================================
-st.subheader("🧾 Nota Epidemiológica")
 
-if st.button("Gerar"):
-    maior = ranking.iloc[0]["categoria"]
-
-    st.text_area("Nota", f"""
-Foram registrados {int(total)} óbitos por acidentes de trânsito.
-
-Maior concentração: {maior}
-
-Taxa: {taxa:.2f}/100 mil hab
-
-Limitações:
-- Dados agregados
-- Subnotificação
-- Sem associação individual álcool/drogas
-""", height=250)
+if __name__ == "__main__":
+    main()
