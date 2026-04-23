@@ -62,21 +62,21 @@ def carregar_dados(uploaded_file):
 # =========================
 # TRANSFORMAÇÃO
 # =========================
-def transformar_para_longo(df):
-    coluna_base = df.columns[0]
+def preparar_dados_tabnet(df):
+    # Mostrar colunas para debug
+    st.write("Colunas detectadas:", df.columns.tolist())
 
-    df_long = df.melt(
-        id_vars=[coluna_base],
-        var_name="Variavel",
-        value_name="Casos"
-    )
+    # Caso padrão TabNet: 2 colunas (Ano + Casos)
+    if df.shape[1] == 2:
+        df.columns = ["Ano", "Casos"]
 
-    df_long.rename(columns={coluna_base: "Categoria"}, inplace=True)
+    # Limpeza
+    df["Ano"] = pd.to_numeric(df["Ano"], errors="coerce")
+    df["Casos"] = pd.to_numeric(df["Casos"], errors="coerce")
 
-    df_long["Casos"] = pd.to_numeric(df_long["Casos"], errors="coerce")
-    df_long.dropna(inplace=True)
+    df.dropna(inplace=True)
 
-    return df_long
+    return df
 
 
 # =========================
