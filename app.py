@@ -193,17 +193,61 @@ if df_filtrado[y_col].max() > limite:
 # -----------------------------
 # GRÁFICO
 # -----------------------------
-fig = px.bar(
+
+# -----------------------------
+# DISTRIBUIÇÃO POR MÊS (CORRETO)
+# -----------------------------
+st.subheader("📅 Distribuição por mês")
+
+ordem_meses = [
+    "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+    "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
+]
+
+df_mes = (
+    df_filtrado.groupby("categoria")["obitos"]
+    .sum()
+    .reset_index()
+)
+
+# ordenar meses corretamente
+df_mes["categoria"] = pd.Categorical(
+    df_mes["categoria"],
+    categories=ordem_meses,
+    ordered=True
+)
+
+df_mes = df_mes.sort_values("categoria")
+
+st.dataframe(df_mes)
+
+# -----------------------------
+# GRÁFICO MENSAL
+# -----------------------------
+fig_mes = px.bar(
     df_mes,
     x="categoria",
     y="obitos",
     title="Óbitos por mês (ordem cronológica)"
 )
 
-st.plotly_chart(fig, use_container_width=True)
+st.plotly_chart(fig_mes, use_container_width=True)
 
-st.plotly_chart(fig, use_container_width=True)
 
+# -----------------------------
+# RANKING (SEPARADO)
+# -----------------------------
+st.subheader("🔝 Ranking de maiores valores")
+
+ranking = (
+    df_filtrado.groupby("categoria")["obitos"]
+    .sum()
+    .sort_values(ascending=False)
+    .head(10)
+    .reset_index()
+)
+
+st.dataframe(ranking)
 # -----------------------------
 # GRÁFICO TEMPORAL
 # -----------------------------
