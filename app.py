@@ -27,33 +27,37 @@ def carregar_dados(arquivo):
     if not caminho.exists():
         raise FileNotFoundError(f"Arquivo não encontrado: {caminho}")
 
-    try:
-        # tentativa padrão
-        df = pd.read_csv(caminho, sep=";", encoding="latin1")
-    except Exception as e:
-        print("⚠️ Erro na leitura padrão, tentando modo robusto...")
+    # Ler arquivo bruto
+    with open(caminho, "r", encoding="latin1") as f:
+        linhas = f.readlines()
 
-        df = pd.read_csv(
-            caminho,
-            sep=";",
-            encoding="latin1",
-            engine="python",
-            skiprows=1  # ignora cabeçalho extra do TabNet
-        )
+    # Encontrar onde começa a tabela (linha com ';')
+    inicio_dados = None
+    for i, linha in enumerate(linhas):
+        if ";" in linha:
+            inicio_dados = i
+            break
 
-    # remove colunas vazias
+    if inicio_dados is None:
+        raise ValueError("❌ CSV inválido: nenhuma tabela encontrada")
+
+    print(f"✅ Dados começam na linha: {inicio_dados}")
+
+    # Ler a partir da linha correta
+    df = pd.read_csv(
+        caminho,
+        sep=";",
+        encoding="latin1",
+        skiprows=inicio_dados
+    )
+
+    # Limpeza
     df = df.loc[:, ~df.columns.str.contains("^Unnamed")]
-
-    # limpa nomes
     df.columns = df.columns.str.strip()
-
-    # remove linhas totalmente vazias
+    df.replace("-", pd.NA, inplace=True)
     df.dropna(how="all", inplace=True)
 
-    # substitui "-" por NaN
-    df.replace("-", pd.NA, inplace=True)
-
-    print("✅ Dados carregados")
+    print("📊 Preview:")
     print(df.head())
 
     return df
