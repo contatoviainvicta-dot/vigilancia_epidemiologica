@@ -42,11 +42,28 @@ def tratar_tabnet(arquivo):
     return df.dropna()
 
 def carregar_estruturado(arquivo):
+    import pandas as pd
+
+    encodings = ['latin-1', 'utf-8', 'cp1252']
+    separadores = [';', ',', '\t']
+
+    for enc in encodings:
+        for sep in separadores:
+            try:
+                df = pd.read_csv(arquivo, encoding=enc, sep=sep)
+                
+                # validação simples: mais de 1 coluna
+                if df.shape[1] > 1:
+                    return df
+            except:
+                continue
+
+    # fallback extremo
     try:
-        df = pd.read_csv(arquivo, sep=';', encoding='latin-1')
-    except:
-        df = pd.read_csv(arquivo, sep=',', encoding='utf-8')
-    return df
+        df = pd.read_csv(arquivo, sep=None, engine='python')
+        return df
+    except Exception as e:
+        raise Exception(f"Erro ao ler CSV: {e}")
 
 def filtrar_transito(df):
     return df[df['cid'].str.startswith('V', na=False)]
