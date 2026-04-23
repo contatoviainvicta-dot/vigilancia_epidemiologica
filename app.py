@@ -17,14 +17,20 @@ Fonte recomendada: SIM/DATASUS (TABNET)
 """)
 arquivo = st.file_uploader("Envie o CSV", type=["csv", "xlsx"])
 
-if arquivo is not None:
-    st.write("Nome:", arquivo.name)
-    st.write("Tipo MIME:", arquivo.type)
+arquivo = st.file_uploader("Envie o arquivo", type=["csv", "xlsx"])
 
-    conteudo = arquivo.read(200)
-    st.write("Primeiros bytes:", conteudo[:100])
+if arquivo is None:
+    st.info("Aguardando upload do arquivo...")
+    st.stop()
 
-    arquivo.seek(0)  # MUITO IMPORTANTE resetar
+# Agora é seguro usar
+
+# Ler bytes SEM perder o arquivo
+conteudo = arquivo.getvalue()
+
+st.write("Nome:", arquivo.name)
+st.write("Tipo:", arquivo.type)
+st.write("Primeiros bytes:", conteudo[:100])
 
 # Mostrar primeiros bytes (debug real)
 conteudo = arquivo.read(200)
