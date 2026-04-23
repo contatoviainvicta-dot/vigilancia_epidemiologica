@@ -14,19 +14,51 @@ arquivo = st.file_uploader("📂 Envie o CSV do TabNet", type=["csv"])
 # FUNÇÃO DE LEITURA ROBUSTA
 # =========================
 def carregar_dados(uploaded_file):
-    try:
-        df = pd.read_csv(uploaded_file, sep=";", encoding="latin1")
-    except:
-        df = pd.read_csv(uploaded_file, sep=";", encoding="latin1", engine="python")
+    import io
 
+    # Lê conteúdo bruto
+    content = uploaded_file.read().decode("latin1")
+
+    # Debug (MOSTRA no app)
+    st.subheader("🔍 Conteúdo bruto (início do arquivo)")
+    st.text(content[:500])
+
+    # Detecta automaticamente separador
+    if ";" in content:
+        sep = ";"
+    elif "," in content:
+        sep = ","
+    elif "\t" in content:
+        sep = "\t"
+    else:
+        st.error("❌ Não foi possível identificar o separador do CSV")
+        return None
+
+    st.info(f"Separador detectado: '{sep}'")
+
+    # Reconstrói arquivo para leitura
+    data = io.StringIO(content)
+
+    df = pd.read_csv(
+        data,
+        sep=sep,
+        engine="python",
+        on_bad_lines="skip"
+    )
+
+    # Limpeza
     df = df.loc[:, ~df.columns.str.contains("^Unnamed")]
     df.columns = df.columns.str.strip()
     df.replace("-", pd.NA, inplace=True)
     df.dropna(how="all", inplace=True)
 
+    # Verificação crítica
+    if df.shape[1] == 0:
+        st.error("❌ Arquivo não contém colunas válidas")
+        return None
+
+    st.success("✅ CSV lido com sucesso")
     return df
-
-
 # =========================
 # TRANSFORMAÇÃO
 # =========================
