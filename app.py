@@ -3,28 +3,19 @@ import pandas as pd
 import plotly.express as px
 import io
 
+# =====================================
+# CONFIG
+# =====================================
 st.set_page_config(page_title="Vigilância - Trânsito", layout="wide")
 
 st.title("🚗 Monitoramento de Mortalidade por Acidentes de Trânsito")
 st.markdown("Dados do SIM/DATASUS (TABNET ou estruturados)")
 
-# -----------------------------
-# UPLOAD
-# -----------------------------
-arquivo = st.file_uploader("Envie o arquivo (CSV ou Excel)", type=["csv", "xlsx"])
+# =====================================
+# FUNÇÕES
+# =====================================
 
-if arquivo is None:
-    st.info("Aguardando upload do arquivo...")
-    st.stop()
-
-conteudo_bytes = arquivo.getvalue()
-
-# -----------------------------
-# FUNÇÃO DE LEITURA ROBUSTA
-# -----------------------------
 def carregar_dados(conteudo_bytes):
-
-    # 1. Tentar Excel
     try:
         df = pd.read_excel(io.BytesIO(conteudo_bytes))
         if df.shape[1] > 1:
@@ -32,7 +23,6 @@ def carregar_dados(conteudo_bytes):
     except:
         pass
 
-    # 2. Decodificar texto
     for enc in ['latin-1', 'utf-8', 'cp1252']:
         try:
             texto = conteudo_bytes.decode(enc)
@@ -44,203 +34,120 @@ def carregar_dados(conteudo_bytes):
 
     linhas = texto.splitlines()
 
-    # 3. Detectar início da tabela
-    inicio_dados = None
     for i, linha in enumerate(linhas):
         if linha.count(';') >= 1:
-            partes = linha.split(';')
-            if len(partes) >= 2:
-                inicio_dados = i
-                break
+            inicio = i
+            break
+    else:
+        raise Exception("Tabela não encontrada")
 
-    if inicio_dados is None:
-        raise Exception("Tabela não encontrada no arquivo")
-
-    dados_limpos = "\n".join(linhas[inicio_dados:])
-
-    # 4. Ler CSV
-    df = pd.read_csv(io.StringIO(dados_limpos), sep=';')
-
-    return df
+    dados_limpos = "\n".join(linhas[inicio:])
+    return pd.read_csv(io.StringIO(dados_limpos), sep=';')
 
 
-# -----------------------------
-# TRANSFORMAR TABNET (WIDE → LONG)
-# -----------------------------
 def transformar_tabnet(df):
     df = df.copy()
-
-    # Remover linha "Total"
     df = df[~df.iloc[:, 0].astype(str).str.contains("Total", case=False)]
-
-    # Renomear primeira coluna
     df = df.rename(columns={df.columns[0]: "categoria"})
 
-    # Converter formato
-    df_long = df.melt(
+    df = df.melt(
         id_vars="categoria",
         var_name="ano",
         value_name="obitos"
     )
 
-    # Limpar dados
-    df_long['obitos'] = pd.to_numeric(df_long['obitos'], errors='coerce')
-
-    return df_long.dropna()
+    df["obitos"] = pd.to_numeric(df["obitos"], errors="coerce")
+    return df.dropna()
 
 
-# -----------------------------
-# CARREGAR DADOS
-# -----------------------------
-try:
-    df = carregar_dados(conteudo_bytes)
-except Exception as e:
-    st.error(f"Erro ao carregar arquivo: {e}")
+def preparar_mes(df):
+    ordem = [
+        "Janeiro","Fevereiro","Março","Abril","Maio","Junho",
+        "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"
+    ]
+
+    df_mes = (
+        df.groupby("categoria")["obitos"]
+        .sum()
+        .reset_index()
+    )
+
+    df_mes["categoria"] = pd.Categorical(df_mes["categoria"], categories=ordem, ordered=True)
+    return df_mes.sort_values("categoria")
+
+
+# =====================================
+# UPLOAD
+# =====================================
+arquivo = st.file_uploader("Envie o arquivo (CSV ou Excel)", type=["csv", "xlsx"])
+
+if arquivo is None:
     st.stop()
 
-# -----------------------------
-# DETECTAR TABNET
-# -----------------------------
+conteudo = arquivo.getvalue()
+
+# =====================================
+# CARREGAMENTO
+# =====================================
+try:
+    df = carregar_dados(conteudo)
+except Exception as e:
+    st.error(f"Erro: {e}")
+    st.stop()
+
+# Detectar TABNET
 if df.shape[1] > 3:
-    st.info("Formato TABNET detectado — reorganizando dados...")
+    st.info("Formato TABNET detectado")
     df = transformar_tabnet(df)
 
-# -----------------------------
-# VISÃO INICIAL
-# -----------------------------
-st.subheader("🔎 Dados")
-st.write("Shape:", df.shape)
-st.write("Colunas:", df.columns.tolist())
-st.dataframe(df.head())
+# =====================================
+# COLUNAS
+# =====================================
+x_col = "categoria"
+y_col = "obitos"
 
-# -----------------------------
-# DEFINIR COLUNAS
-# -----------------------------
-if "obitos" in df.columns:
-    x_col = "categoria"
-    y_col = "obitos"
-else:
-    colunas = df.columns.tolist()
-    if len(colunas) < 2:
-        st.error("Dados insuficientes para análise")
-        st.stop()
-    x_col = colunas[0]
-    y_col = colunas[1]
-
-# Converter valores
-df[y_col] = pd.to_numeric(df[y_col], errors='coerce')
-
-# -----------------------------
+# =====================================
 # FILTRO
-# -----------------------------
+# =====================================
 st.subheader("🔍 Filtro")
+filtro = st.text_input("Filtrar")
 
-filtro = st.text_input("Filtrar categoria (ex: município ou mês)")
+df = df[df[x_col].astype(str).str.contains(filtro, case=False, na=False)]
 
-df_filtrado = df[df[x_col].astype(str).str.contains(filtro, case=False, na=False)]
-
-# -----------------------------
+# =====================================
 # INDICADORES
-# -----------------------------
+# =====================================
 st.subheader("📊 Indicadores")
 
-populacao = st.number_input("População estimada", value=3000000)
+pop = st.number_input("População", value=3000000)
 
-total = df_filtrado[y_col].sum()
-media = df_filtrado[y_col].mean()
-taxa = (total / populacao) * 100000 if populacao > 0 else 0
+total = df[y_col].sum()
+media = df[y_col].mean()
+taxa = (total / pop) * 100000 if pop > 0 else 0
 
-col1, col2, col3 = st.columns(3)
-col1.metric("Total de óbitos", int(total))
-col2.metric("Média", round(media, 2))
-col3.metric("Taxa por 100 mil", f"{taxa:.2f}")
+c1, c2, c3 = st.columns(3)
+c1.metric("Total", int(total))
+c2.metric("Média", round(media, 2))
+c3.metric("Taxa/100 mil", f"{taxa:.2f}")
 
-# -----------------------------
-# PROPORÇÃO
-# -----------------------------
-df_filtrado["proporcao"] = df_filtrado[y_col] / total * 100
-
-# -----------------------------
-# TOP 10
-# -----------------------------
+# =====================================
+# DISTRIBUIÇÃO MENSAL
+# =====================================
 st.subheader("📅 Distribuição por mês")
 
-ordem_meses = [
-    "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
-    "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
-]
-
-df_mes = (
-    df.groupby("categoria")["obitos"]
-    .sum()
-    .reset_index()
-)
-
-# ordenar corretamente
-df_mes["categoria"] = pd.Categorical(df_mes["categoria"], categories=ordem_meses, ordered=True)
-df_mes = df_mes.sort_values("categoria")
-
+df_mes = preparar_mes(df)
 st.dataframe(df_mes)
 
-# -----------------------------
-# ALERTA
-# -----------------------------
-limite = df_filtrado[y_col].mean() + 2 * df_filtrado[y_col].std()
-
-if df_filtrado[y_col].max() > limite:
-    st.error("⚠️ Possível concentração elevada detectada")
-
-# -----------------------------
-# GRÁFICO
-# -----------------------------
-
-# -----------------------------
-# DISTRIBUIÇÃO POR MÊS (CORRETO)
-# -----------------------------
-st.subheader("📅 Distribuição por mês")
-
-ordem_meses = [
-    "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
-    "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
-]
-
-df_mes = (
-    df_filtrado.groupby("categoria")["obitos"]
-    .sum()
-    .reset_index()
-)
-
-# ordenar meses corretamente
-df_mes["categoria"] = pd.Categorical(
-    df_mes["categoria"],
-    categories=ordem_meses,
-    ordered=True
-)
-
-df_mes = df_mes.sort_values("categoria")
-
-st.dataframe(df_mes)
-
-# -----------------------------
-# GRÁFICO MENSAL
-# -----------------------------
-fig_mes = px.bar(
-    df_mes,
-    x="categoria",
-    y="obitos",
-    title="Óbitos por mês (ordem cronológica)"
-)
-
+fig_mes = px.bar(df_mes, x="categoria", y="obitos")
 st.plotly_chart(fig_mes, use_container_width=True)
 
-
-# -----------------------------
-# RANKING (SEPARADO)
-# -----------------------------
-st.subheader("🔝 Ranking de maiores valores")
+# =====================================
+# RANKING
+# =====================================
+st.subheader("🔝 Ranking")
 
 ranking = (
-    df_filtrado.groupby("categoria")["obitos"]
+    df.groupby("categoria")["obitos"]
     .sum()
     .sort_values(ascending=False)
     .head(10)
@@ -248,57 +155,45 @@ ranking = (
 )
 
 st.dataframe(ranking)
-# -----------------------------
-# GRÁFICO TEMPORAL
-# -----------------------------
 
+# =====================================
+# ALERTA
+# =====================================
+limite = df[y_col].mean() + 2 * df[y_col].std()
 
-# -----------------------------
-# GRÁFICO PROPORÇÃO
-# -----------------------------
+if df[y_col].max() > limite:
+    st.error("⚠️ Possível concentração elevada detectada")
+
+# =====================================
+# PROPORÇÃO (CORRIGIDO)
+# =====================================
 st.subheader("🥧 Proporção")
 
-fig2 = px.pie(
-    top10,
-    names=x_col,
-    values=y_col,
-    title="Distribuição percentual (Top 10)"
+fig_pie = px.pie(
+    ranking,
+    names="categoria",
+    values="obitos"
 )
 
-st.plotly_chart(fig2, use_container_width=True)
+st.plotly_chart(fig_pie)
 
-# -----------------------------
-# NOTA EPIDEMIOLÓGICA
-# -----------------------------
+# =====================================
+# NOTA
+# =====================================
 st.subheader("🧾 Nota Epidemiológica")
 
-if st.button("Gerar Nota"):
+if st.button("Gerar"):
+    maior = ranking.iloc[0]["categoria"]
 
-    try:
-        maior = df_filtrado.loc[df_filtrado[y_col].idxmax(), x_col]
-    except:
-        maior = "não identificado"
+    st.text_area("Nota", f"""
+Foram registrados {int(total)} óbitos por acidentes de trânsito.
 
-    texto = f"""
-NOTA EPIDEMIOLÓGICA
+Maior concentração: {maior}
 
-Foram registrados {int(total)} óbitos por acidentes de trânsito no período analisado.
+Taxa: {taxa:.2f}/100 mil hab
 
-A maior concentração ocorreu em {maior}.
-
-A taxa estimada foi de {taxa:.2f} óbitos por 100 mil habitantes.
-
-Observa-se distribuição heterogênea entre as categorias analisadas.
-
-LIMITAÇÕES:
-- Dados agregados (TABNET)
-- Possível subnotificação
-- Não permite inferência individual (álcool/drogas)
-
-RECOMENDAÇÕES:
-- Intensificação da fiscalização
-- Monitoramento contínuo
-- Ações educativas
-"""
-
-    st.text_area("Nota gerada", texto, height=300)
+Limitações:
+- Dados agregados
+- Subnotificação
+- Sem associação individual álcool/drogas
+""", height=250)
