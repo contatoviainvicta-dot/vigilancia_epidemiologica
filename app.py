@@ -44,6 +44,13 @@ def tratar_tabnet(arquivo):
 def carregar_estruturado(arquivo):
     import pandas as pd
 
+    nome = arquivo.name.lower()
+
+    # 1. Se for Excel
+    if nome.endswith('.xls') or nome.endswith('.xlsx'):
+        return pd.read_excel(arquivo)
+
+    # 2. Tentar como CSV com múltiplas estratégias
     encodings = ['latin-1', 'utf-8', 'cp1252']
     separadores = [';', ',', '\t']
 
@@ -51,19 +58,27 @@ def carregar_estruturado(arquivo):
         for sep in separadores:
             try:
                 df = pd.read_csv(arquivo, encoding=enc, sep=sep)
-                
-                # validação simples: mais de 1 coluna
+
                 if df.shape[1] > 1:
                     return df
+
             except:
                 continue
 
-    # fallback extremo
+    # 3. Último recurso: engine python
     try:
         df = pd.read_csv(arquivo, sep=None, engine='python')
         return df
-    except Exception as e:
-        raise Exception(f"Erro ao ler CSV: {e}")
+    except:
+        pass
+
+    # 4. Tentar como Excel mesmo sem extensão
+    try:
+        return pd.read_excel(arquivo)
+    except:
+        pass
+
+    raise Exception("Não foi possível identificar o formato do arquivo.")
 
 def filtrar_transito(df):
     return df[df['cid'].str.startswith('V', na=False)]
