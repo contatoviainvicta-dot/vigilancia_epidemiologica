@@ -1,73 +1,36 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-from pathlib import Path
+import streamlit as st
+
+st.title("📊 Vigilância Epidemiológica - Leptospirose (DF)")
 
 # =========================
-# CONFIGURAÇÃO DE CAMINHO
+# UPLOAD DO ARQUIVO
 # =========================
-BASE_DIR = Path(__file__).resolve().parent
-DATA_PATH = BASE_DIR / "data"
-
-# =========================
-# CONFIGURAÇÃO DAS DOENÇAS
-# =========================
-doencas = {
-    "Leptospirose": "leptospirose.csv"
-}
+arquivo = st.file_uploader("📂 Envie o CSV do TabNet", type=["csv"])
 
 # =========================
-# FUNÇÃO DE LEITURA SEGURA
+# FUNÇÃO DE LEITURA ROBUSTA
 # =========================
-def carregar_dados(arquivo):
-    caminho = DATA_PATH / arquivo
+def carregar_dados(uploaded_file):
+    try:
+        df = pd.read_csv(uploaded_file, sep=";", encoding="latin1")
+    except:
+        df = pd.read_csv(uploaded_file, sep=";", encoding="latin1", engine="python")
 
-    print(f"\n🔎 Abrindo: {caminho}")
-
-    if not caminho.exists():
-        raise FileNotFoundError(f"Arquivo não encontrado: {caminho}")
-
-    # Ler arquivo bruto
-    with open(caminho, "r", encoding="latin1") as f:
-        linhas = f.readlines()
-
-    # Encontrar onde começa a tabela (linha com ';')
-    inicio_dados = None
-    for i, linha in enumerate(linhas):
-        if ";" in linha:
-            inicio_dados = i
-            break
-
-    if inicio_dados is None:
-        raise ValueError("❌ CSV inválido: nenhuma tabela encontrada")
-
-    print(f"✅ Dados começam na linha: {inicio_dados}")
-
-    # Ler a partir da linha correta
-    df = pd.read_csv(
-        caminho,
-        sep=";",
-        encoding="latin1",
-        skiprows=inicio_dados
-    )
-
-    # Limpeza
     df = df.loc[:, ~df.columns.str.contains("^Unnamed")]
     df.columns = df.columns.str.strip()
     df.replace("-", pd.NA, inplace=True)
     df.dropna(how="all", inplace=True)
 
-    print("📊 Preview:")
-    print(df.head())
-
     return df
 
-print(open("data/leptospirose.csv").read())
+
 # =========================
-# TRANSFORMA PARA FORMATO LONGO
+# TRANSFORMAÇÃO
 # =========================
 def transformar_para_longo(df):
-    # Assume que a primeira coluna é categoria (ex: Ano)
     coluna_base = df.columns[0]
 
     df_long = df.melt(
@@ -85,72 +48,49 @@ def transformar_para_longo(df):
 
 
 # =========================
-# TENDÊNCIA TEMPORAL
-# =========================
-def grafico_tendencia(df, nome):
-    # Tenta converter categoria para número (ano)
-    df["Categoria"] = pd.to_numeric(df["Categoria"], errors="coerce")
-    df = df.dropna()
-
-    df_total = df.groupby("Categoria")["Casos"].sum().reset_index()
-
-    plt.figure(figsize=(10, 5))
-    sns.lineplot(data=df_total, x="Categoria", y="Casos", marker="o")
-
-    plt.title(f"Tendência Temporal - {nome} (DF)")
-    plt.xlabel("Ano")
-    plt.ylabel("Casos")
-    plt.grid()
-
-    plt.tight_layout()
-    plt.show()
-
-    print("\n📊 Dados agregados:")
-    print(df_total)
-
-
-# =========================
-# PERFIL EPIDEMIOLÓGICO
-# =========================
-def grafico_perfil(df, nome):
-    df_total = df.groupby("Variavel")["Casos"].sum().reset_index()
-
-    df_total = df_total.sort_values(by="Casos", ascending=False).head(10)
-
-    plt.figure(figsize=(10, 5))
-    sns.barplot(data=df_total, x="Casos", y="Variavel")
-
-    plt.title(f"Perfil Epidemiológico - {nome}")
-    plt.xlabel("Casos")
-    plt.ylabel("Categoria")
-
-    plt.tight_layout()
-    plt.show()
-
-
-# =========================
-# FUNÇÃO PRINCIPAL
-# =========================
-def main():
-    print("\n🚀 INICIANDO ANÁLISE EPIDEMIOLÓGICA\n")
-
-    for nome, arquivo in doencas.items():
-        print(f"\n==============================")
-        print(f"🦠 Doença: {nome}")
-        print(f"==============================")
-
-        df = carregar_dados(arquivo)
-        df_long = transformar_para_longo(df)
-
-        # Gráficos
-        grafico_tendencia(df_long.copy(), nome)
-        grafico_perfil(df_long.copy(), nome)
-
-    print("\n✅ Análise concluída com sucesso!")
-
-
-# =========================
 # EXECUÇÃO
 # =========================
-if __name__ == "__main__":
-    main()
+if arquivo is not None:
+    st.success("✅ Arquivo carregado!")
+
+    df = carregar_dados(arquivo)
+
+    st.subheader("📄 Preview dos dados")
+    st.write(df.head())
+
+    df_long = transformar_para_longo(df)
+
+    # =========================
+    # GRÁFICO DE TENDÊNCIA
+    # =========================
+    st.subheader("📈 Tendência Temporal")
+
+    df_long["Categoria"] = pd.to_numeric(df_long["Categoria"], errors="coerce")
+    df_long = df_long.dropna()
+
+    df_total = df_long.groupby("Categoria")["Casos"].sum().reset_index()
+
+    fig, ax = plt.subplots()
+    sns.lineplot(data=df_total, x="Categoria", y="Casos", marker="o", ax=ax)
+
+    ax.set_xlabel("Ano")
+    ax.set_ylabel("Casos")
+    ax.set_title("Leptospirose - DF")
+
+    st.pyplot(fig)
+
+    # =========================
+    # PERFIL
+    # =========================
+    st.subheader("📊 Perfil Epidemiológico")
+
+    df_perf = df_long.groupby("Variavel")["Casos"].sum().reset_index()
+    df_perf = df_perf.sort_values(by="Casos", ascending=False).head(10)
+
+    fig2, ax2 = plt.subplots()
+    sns.barplot(data=df_perf, x="Casos", y="Variavel", ax=ax2)
+
+    st.pyplot(fig2)
+
+else:
+    st.info("⬆️ Faça upload de um arquivo CSV do TabNet para começar")
