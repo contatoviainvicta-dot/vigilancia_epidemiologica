@@ -22,24 +22,39 @@ doencas = {
 def carregar_dados(arquivo):
     caminho = DATA_PATH / arquivo
 
-    print(f"\n🔎 Tentando abrir: {caminho}")
+    print(f"\n🔎 Abrindo: {caminho}")
 
     if not caminho.exists():
-        raise FileNotFoundError(
-            f"❌ Arquivo não encontrado: {caminho}\n"
-            f"👉 Verifique se o arquivo está dentro da pasta /data"
+        raise FileNotFoundError(f"Arquivo não encontrado: {caminho}")
+
+    try:
+        # tentativa padrão
+        df = pd.read_csv(caminho, sep=";", encoding="latin1")
+    except Exception as e:
+        print("⚠️ Erro na leitura padrão, tentando modo robusto...")
+
+        df = pd.read_csv(
+            caminho,
+            sep=";",
+            encoding="latin1",
+            engine="python",
+            skiprows=1  # ignora cabeçalho extra do TabNet
         )
 
-    df = pd.read_csv(caminho, sep=";", encoding="latin1")
-
-    # Remove colunas vazias
+    # remove colunas vazias
     df = df.loc[:, ~df.columns.str.contains("^Unnamed")]
 
-    # Limpa nomes
+    # limpa nomes
     df.columns = df.columns.str.strip()
 
-    print("✅ Arquivo carregado com sucesso")
-    print("Colunas:", df.columns.tolist())
+    # remove linhas totalmente vazias
+    df.dropna(how="all", inplace=True)
+
+    # substitui "-" por NaN
+    df.replace("-", pd.NA, inplace=True)
+
+    print("✅ Dados carregados")
+    print(df.head())
 
     return df
 
