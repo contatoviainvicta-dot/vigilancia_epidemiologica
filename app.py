@@ -193,15 +193,14 @@ if df_filtrado[y_col].max() > limite:
 # -----------------------------
 # GRÁFICO
 # -----------------------------
-st.subheader("📊 Distribuição")
-
 fig = px.bar(
-    df_filtrado.sort_values(by=y_col),
-    x=y_col,
-    y=x_col,
-    orientation='h',
-    title="Óbitos por categoria"
+    df_mes,
+    x="categoria",
+    y="obitos",
+    title="Óbitos por mês (ordem cronológica)"
 )
+
+st.plotly_chart(fig, use_container_width=True)
 
 st.plotly_chart(fig, use_container_width=True)
 
