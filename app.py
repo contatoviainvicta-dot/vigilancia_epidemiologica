@@ -23,10 +23,8 @@ conteudo_bytes = arquivo.getvalue()
 # FUNÇÃO DE LEITURA ROBUSTA
 # -----------------------------
 def carregar_dados(conteudo_bytes):
-    import pandas as pd
-    import io
 
-    # Excel
+    # 1. Tentar Excel
     try:
         df = pd.read_excel(io.BytesIO(conteudo_bytes))
         if df.shape[1] > 1:
@@ -34,7 +32,7 @@ def carregar_dados(conteudo_bytes):
     except:
         pass
 
-    # Decodificar texto
+    # 2. Decodificar texto
     for enc in ['latin-1', 'utf-8', 'cp1252']:
         try:
             texto = conteudo_bytes.decode(enc)
@@ -46,7 +44,7 @@ def carregar_dados(conteudo_bytes):
 
     linhas = texto.splitlines()
 
-    # Detectar início da tabela (linha com ;)
+    # 3. Detectar início da tabela
     inicio_dados = None
     for i, linha in enumerate(linhas):
         if linha.count(';') >= 1:
@@ -60,30 +58,25 @@ def carregar_dados(conteudo_bytes):
 
     dados_limpos = "\n".join(linhas[inicio_dados:])
 
-    # Ler CSV
+    # 4. Ler CSV
     df = pd.read_csv(io.StringIO(dados_limpos), sep=';')
 
     return df
 
-# -----------------------------
-# CARREGAR
-# -----------------------------
-try:
-    df = carregar_dados(conteudo_bytes)
-except Exception as e:
-    st.error(f"Erro ao carregar arquivo: {e}")
-    st.stop()
 
+# -----------------------------
+# TRANSFORMAR TABNET (WIDE → LONG)
+# -----------------------------
 def transformar_tabnet(df):
     df = df.copy()
 
-    # Remover linhas de total
+    # Remover linha "Total"
     df = df[~df.iloc[:, 0].astype(str).str.contains("Total", case=False)]
 
     # Renomear primeira coluna
     df = df.rename(columns={df.columns[0]: "categoria"})
 
-    # Converter wide → long
+    # Converter formato
     df_long = df.melt(
         id_vars="categoria",
         var_name="ano",
@@ -94,19 +87,45 @@ def transformar_tabnet(df):
     df_long['obitos'] = pd.to_numeric(df_long['obitos'], errors='coerce')
 
     return df_long.dropna()
+
+
+# -----------------------------
+# CARREGAR DADOS
+# -----------------------------
+try:
+    df = carregar_dados(conteudo_bytes)
+except Exception as e:
+    st.error(f"Erro ao carregar arquivo: {e}")
+    st.stop()
+
+# -----------------------------
+# DETECTAR TABNET
+# -----------------------------
+if df.shape[1] > 3:
+    st.info("Formato TABNET detectado — reorganizando dados...")
+    df = transformar_tabnet(df)
+
 # -----------------------------
 # VISÃO INICIAL
 # -----------------------------
+st.subheader("🔎 Dados")
+st.write("Shape:", df.shape)
+st.write("Colunas:", df.columns.tolist())
+st.dataframe(df.head())
 
-
-colunas = df.columns.tolist()
-
-if len(colunas) < 2:
-    st.error("Dados insuficientes para análise")
-    st.stop()
-
-x_col = colunas[0]
-y_col = colunas[1]
+# -----------------------------
+# DEFINIR COLUNAS
+# -----------------------------
+if "obitos" in df.columns:
+    x_col = "categoria"
+    y_col = "obitos"
+else:
+    colunas = df.columns.tolist()
+    if len(colunas) < 2:
+        st.error("Dados insuficientes para análise")
+        st.stop()
+    x_col = colunas[0]
+    y_col = colunas[1]
 
 # Converter valores
 df[y_col] = pd.to_numeric(df[y_col], errors='coerce')
@@ -116,7 +135,7 @@ df[y_col] = pd.to_numeric(df[y_col], errors='coerce')
 # -----------------------------
 st.subheader("🔍 Filtro")
 
-filtro = st.text_input("Filtrar (ex: nome do município)")
+filtro = st.text_input("Filtrar categoria (ex: município ou mês)")
 
 df_filtrado = df[df[x_col].astype(str).str.contains(filtro, case=False, na=False)]
 
@@ -139,27 +158,36 @@ col3.metric("Taxa por 100 mil", f"{taxa:.2f}")
 # -----------------------------
 # PROPORÇÃO
 # -----------------------------
-df_filtrado['proporcao'] = df_filtrado[y_col] / total * 100
+df_filtrado["proporcao"] = df_filtrado[y_col] / total * 100
 
 # -----------------------------
-# RANKING
+# TOP 10
 # -----------------------------
 st.subheader("🔝 Top 10")
 
-top10 = df_filtrado.sort_values(by=y_col, ascending=False).head(10)
-st.dataframe(top10)
+if "categoria" in df.columns:
+    top10 = (
+        df_filtrado.groupby("categoria")["obitos"]
+        .sum()
+        .sort_values(ascending=False)
+        .head(10)
+        .reset_index()
+    )
+    st.dataframe(top10)
+else:
+    top10 = df_filtrado.sort_values(by=y_col, ascending=False).head(10)
+    st.dataframe(top10)
 
 # -----------------------------
-# ALERTA (OUTLIER)
+# ALERTA
 # -----------------------------
 limite = df_filtrado[y_col].mean() + 2 * df_filtrado[y_col].std()
-df_filtrado['alerta'] = df_filtrado[y_col] > limite
 
-if df_filtrado['alerta'].any():
+if df_filtrado[y_col].max() > limite:
     st.error("⚠️ Possível concentração elevada detectada")
 
 # -----------------------------
-# GRÁFICO BARRAS
+# GRÁFICO
 # -----------------------------
 st.subheader("📊 Distribuição")
 
@@ -172,6 +200,22 @@ fig = px.bar(
 )
 
 st.plotly_chart(fig, use_container_width=True)
+
+# -----------------------------
+# GRÁFICO TEMPORAL
+# -----------------------------
+if "ano" in df.columns:
+    st.subheader("📅 Tendência temporal")
+
+    fig_time = px.line(
+        df,
+        x="ano",
+        y="obitos",
+        color="categoria",
+        title="Evolução temporal dos óbitos"
+    )
+
+    st.plotly_chart(fig_time, use_container_width=True)
 
 # -----------------------------
 # GRÁFICO PROPORÇÃO
@@ -193,6 +237,7 @@ st.plotly_chart(fig2, use_container_width=True)
 st.subheader("🧾 Nota Epidemiológica")
 
 if st.button("Gerar Nota"):
+
     try:
         maior = df_filtrado.loc[df_filtrado[y_col].idxmax(), x_col]
     except:
@@ -201,23 +246,23 @@ if st.button("Gerar Nota"):
     texto = f"""
 NOTA EPIDEMIOLÓGICA
 
-Foram registrados {int(total)} óbitos por acidentes de trânsito.
+Foram registrados {int(total)} óbitos por acidentes de trânsito no período analisado.
 
 A maior concentração ocorreu em {maior}.
 
 A taxa estimada foi de {taxa:.2f} óbitos por 100 mil habitantes.
 
-Observa-se distribuição heterogênea entre os municípios analisados.
+Observa-se distribuição heterogênea entre as categorias analisadas.
 
 LIMITAÇÕES:
 - Dados agregados (TABNET)
 - Possível subnotificação
-- Ausência de variáveis individuais (álcool/drogas)
+- Não permite inferência individual (álcool/drogas)
 
 RECOMENDAÇÕES:
 - Intensificação da fiscalização
 - Monitoramento contínuo
-- Ações educativas em segurança no trânsito
+- Ações educativas
 """
 
     st.text_area("Nota gerada", texto, height=300)
