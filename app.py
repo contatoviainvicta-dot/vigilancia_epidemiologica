@@ -42,16 +42,10 @@ def tratar_tabnet(arquivo):
     return df.dropna()
 
 def carregar_estruturado(arquivo):
-    import pandas as pd
-
     try:
         df = pd.read_csv(arquivo, sep=';', encoding='latin-1')
     except:
-        try:
-            df = pd.read_csv(arquivo, sep=',', encoding='utf-8')
-        except:
-            df = pd.read_csv(arquivo, sep=None, engine='python')
-    
+        df = pd.read_csv(arquivo, sep=',', encoding='utf-8')
     return df
 
 def filtrar_transito(df):
