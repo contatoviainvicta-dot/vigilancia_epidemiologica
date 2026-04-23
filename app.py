@@ -1,6 +1,10 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import sys
+import os
+
+sys.path.append(os.path.dirname(__file__))
 
 from src.processamento import carregar_dados
 from src.indicadores import calcular_indicadores
