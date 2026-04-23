@@ -6,7 +6,7 @@ import io
 st.set_page_config(page_title="Vigilância - Trânsito", layout="wide")
 
 st.title("🚗 Monitoramento de Mortalidade por Acidentes de Trânsito")
-st.markdown("Análise baseada em dados do SIM/DATASUS (TABNET ou estruturados)")
+st.markdown("Dados do SIM/DATASUS (TABNET ou estruturados)")
 
 # -----------------------------
 # UPLOAD
@@ -17,22 +17,16 @@ if arquivo is None:
     st.info("Aguardando upload do arquivo...")
     st.stop()
 
-# -----------------------------
-# DEBUG (opcional)
-# -----------------------------
-st.write("📄 Nome:", arquivo.name)
-st.write("📦 Tipo:", arquivo.type)
-
 conteudo_bytes = arquivo.getvalue()
 
 # -----------------------------
-# FUNÇÃO PRINCIPAL DE LEITURA
+# FUNÇÃO DE LEITURA ROBUSTA
 # -----------------------------
-def carregar_dados(conteudo_bytes, nome_arquivo):
+def carregar_dados(conteudo_bytes):
     import pandas as pd
     import io
 
-    # 1. Tentar Excel
+    # Excel
     try:
         df = pd.read_excel(io.BytesIO(conteudo_bytes))
         if df.shape[1] > 1:
@@ -40,7 +34,7 @@ def carregar_dados(conteudo_bytes, nome_arquivo):
     except:
         pass
 
-    # 2. Decodificar
+    # Decodificar texto
     for enc in ['latin-1', 'utf-8', 'cp1252']:
         try:
             texto = conteudo_bytes.decode(enc)
@@ -52,11 +46,9 @@ def carregar_dados(conteudo_bytes, nome_arquivo):
 
     linhas = texto.splitlines()
 
-    # 3. Detectar início real da tabela
+    # Detectar início da tabela (linha com ;)
     inicio_dados = None
-
     for i, linha in enumerate(linhas):
-        # regra: linha com separador e mais de 1 coluna
         if linha.count(';') >= 1:
             partes = linha.split(';')
             if len(partes) >= 2:
@@ -64,77 +56,119 @@ def carregar_dados(conteudo_bytes, nome_arquivo):
                 break
 
     if inicio_dados is None:
-        raise Exception("Não foi possível localizar a tabela no arquivo.")
+        raise Exception("Tabela não encontrada no arquivo")
 
     dados_limpos = "\n".join(linhas[inicio_dados:])
 
-    # 4. Ler CSV
-    try:
-        df = pd.read_csv(io.StringIO(dados_limpos), sep=';')
-        return df
-    except Exception as e:
-        raise Exception(f"Erro ao ler CSV após limpeza: {e}")
+    # Ler CSV
+    df = pd.read_csv(io.StringIO(dados_limpos), sep=';')
+
+    return df
 
 # -----------------------------
-# CARREGAMENTO
+# CARREGAR
 # -----------------------------
 try:
-    df = carregar_dados(conteudo_bytes, arquivo.name)
+    df = carregar_dados(conteudo_bytes)
 except Exception as e:
     st.error(f"Erro ao carregar arquivo: {e}")
     st.stop()
 
 # -----------------------------
-# VISUALIZAÇÃO INICIAL
+# VISÃO INICIAL
 # -----------------------------
-st.subheader("🔎 Dados carregados")
-
+st.subheader("🔎 Dados")
 st.write("Shape:", df.shape)
 st.write("Colunas:", df.columns.tolist())
-
 st.dataframe(df.head())
-
-# -----------------------------
-# ANÁLISE AUTOMÁTICA (TABNET)
-# -----------------------------
-st.subheader("📊 Análise descritiva")
 
 colunas = df.columns.tolist()
 
-if len(colunas) >= 2:
-    x_col = colunas[0]
-    y_col = colunas[1]
+if len(colunas) < 2:
+    st.error("Dados insuficientes para análise")
+    st.stop()
 
-    # Tentar converter valores
-    df[y_col] = pd.to_numeric(df[y_col], errors='coerce')
+x_col = colunas[0]
+y_col = colunas[1]
 
-    fig = px.bar(
-        df,
-        x=x_col,
-        y=y_col,
-        title=f"{y_col} por {x_col}"
-    )
-
-    st.plotly_chart(fig, use_container_width=True)
-
-else:
-    st.warning("Não foi possível identificar colunas suficientes para análise.")
+# Converter valores
+df[y_col] = pd.to_numeric(df[y_col], errors='coerce')
 
 # -----------------------------
-# TABELA RESUMO
+# FILTRO
 # -----------------------------
-st.subheader("📈 Estatísticas")
+st.subheader("🔍 Filtro")
 
-try:
-    total = df[y_col].sum()
-    media = df[y_col].mean()
+filtro = st.text_input("Filtrar (ex: nome do município)")
 
-    col1, col2 = st.columns(2)
-    col1.metric("Total", int(total))
-    col2.metric("Média", round(media, 2))
+df_filtrado = df[df[x_col].astype(str).str.contains(filtro, case=False, na=False)]
 
-except:
-    st.warning("Não foi possível calcular estatísticas.")
+# -----------------------------
+# INDICADORES
+# -----------------------------
+st.subheader("📊 Indicadores")
+
+populacao = st.number_input("População estimada", value=3000000)
+
+total = df_filtrado[y_col].sum()
+media = df_filtrado[y_col].mean()
+taxa = (total / populacao) * 100000 if populacao > 0 else 0
+
+col1, col2, col3 = st.columns(3)
+col1.metric("Total de óbitos", int(total))
+col2.metric("Média", round(media, 2))
+col3.metric("Taxa por 100 mil", f"{taxa:.2f}")
+
+# -----------------------------
+# PROPORÇÃO
+# -----------------------------
+df_filtrado['proporcao'] = df_filtrado[y_col] / total * 100
+
+# -----------------------------
+# RANKING
+# -----------------------------
+st.subheader("🔝 Top 10")
+
+top10 = df_filtrado.sort_values(by=y_col, ascending=False).head(10)
+st.dataframe(top10)
+
+# -----------------------------
+# ALERTA (OUTLIER)
+# -----------------------------
+limite = df_filtrado[y_col].mean() + 2 * df_filtrado[y_col].std()
+df_filtrado['alerta'] = df_filtrado[y_col] > limite
+
+if df_filtrado['alerta'].any():
+    st.error("⚠️ Possível concentração elevada detectada")
+
+# -----------------------------
+# GRÁFICO BARRAS
+# -----------------------------
+st.subheader("📊 Distribuição")
+
+fig = px.bar(
+    df_filtrado.sort_values(by=y_col),
+    x=y_col,
+    y=x_col,
+    orientation='h',
+    title="Óbitos por categoria"
+)
+
+st.plotly_chart(fig, use_container_width=True)
+
+# -----------------------------
+# GRÁFICO PROPORÇÃO
+# -----------------------------
+st.subheader("🥧 Proporção")
+
+fig2 = px.pie(
+    top10,
+    names=x_col,
+    values=y_col,
+    title="Distribuição percentual (Top 10)"
+)
+
+st.plotly_chart(fig2, use_container_width=True)
 
 # -----------------------------
 # NOTA EPIDEMIOLÓGICA
@@ -142,24 +176,31 @@ except:
 st.subheader("🧾 Nota Epidemiológica")
 
 if st.button("Gerar Nota"):
+    try:
+        maior = df_filtrado.loc[df_filtrado[y_col].idxmax(), x_col]
+    except:
+        maior = "não identificado"
+
     texto = f"""
 NOTA EPIDEMIOLÓGICA
 
-Foram analisados dados de mortalidade por acidentes de trânsito provenientes do DATASUS.
+Foram registrados {int(total)} óbitos por acidentes de trânsito.
 
-Total de registros: {df.shape[0]}
-Total de óbitos: {int(total) if 'total' in locals() else 'N/A'}
+A maior concentração ocorreu em {maior}.
 
-Observa-se distribuição variável entre categorias analisadas.
+A taxa estimada foi de {taxa:.2f} óbitos por 100 mil habitantes.
+
+Observa-se distribuição heterogênea entre os municípios analisados.
 
 LIMITAÇÕES:
 - Dados agregados (TABNET)
 - Possível subnotificação
-- Ausência de variáveis individuais (ex: álcool/drogas)
+- Ausência de variáveis individuais (álcool/drogas)
 
-IMPLICAÇÕES:
+RECOMENDAÇÕES:
+- Intensificação da fiscalização
 - Monitoramento contínuo
-- Apoio a políticas públicas de segurança no trânsito
+- Ações educativas em segurança no trânsito
 """
 
-    st.text_area("Texto gerado", texto, height=300)
+    st.text_area("Nota gerada", texto, height=300)
