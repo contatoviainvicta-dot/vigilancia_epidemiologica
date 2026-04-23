@@ -204,18 +204,7 @@ st.plotly_chart(fig, use_container_width=True)
 # -----------------------------
 # GRÁFICO TEMPORAL
 # -----------------------------
-if "ano" in df.columns:
-    st.subheader("📅 Tendência temporal")
 
-    fig_time = px.line(
-        df,
-        x="ano",
-        y="obitos",
-        color="categoria",
-        title="Evolução temporal dos óbitos"
-    )
-
-    st.plotly_chart(fig_time, use_container_width=True)
 
 # -----------------------------
 # GRÁFICO PROPORÇÃO
