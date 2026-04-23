@@ -15,7 +15,15 @@ st.markdown("""
 Sistema para análise de mortalidade por acidentes de trânsito e associação com álcool e drogas.
 Fonte recomendada: SIM/DATASUS (TABNET)
 """)
+st.write("Nome:", arquivo.name)
+st.write("Tipo MIME:", arquivo.type)
 
+# Mostrar primeiros bytes (debug real)
+conteudo = arquivo.read(200)
+st.write("Primeiros bytes:", conteudo[:100])
+
+# Resetar ponteiro
+arquivo.seek(0)
 # Upload
 arquivo = st.file_uploader("Envie o CSV (SIM/TABNET ou estruturado)", type=["csv"])
 
