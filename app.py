@@ -44,41 +44,41 @@ def tratar_tabnet(arquivo):
 def carregar_estruturado(arquivo):
     import pandas as pd
 
-    nome = arquivo.name.lower()
+    # Ler primeiros bytes para identificar tipo
+    inicio = arquivo.read(500).decode(errors='ignore')
+    arquivo.seek(0)
 
-    # 1. Se for Excel
-    if nome.endswith('.xls') or nome.endswith('.xlsx'):
-        return pd.read_excel(arquivo)
+    # 1. Detectar HTML (TABNET às vezes exporta assim)
+    if "<table" in inicio.lower():
+        try:
+            dfs = pd.read_html(arquivo)
+            return dfs[0]
+        except:
+            pass
 
-    # 2. Tentar como CSV com múltiplas estratégias
-    encodings = ['latin-1', 'utf-8', 'cp1252']
-    separadores = [';', ',', '\t']
-
-    for enc in encodings:
-        for sep in separadores:
-            try:
-                df = pd.read_csv(arquivo, encoding=enc, sep=sep)
-
-                if df.shape[1] > 1:
-                    return df
-
-            except:
-                continue
-
-    # 3. Último recurso: engine python
-    try:
-        df = pd.read_csv(arquivo, sep=None, engine='python')
-        return df
-    except:
-        pass
-
-    # 4. Tentar como Excel mesmo sem extensão
+    # 2. Detectar Excel binário
     try:
         return pd.read_excel(arquivo)
     except:
         pass
 
-    raise Exception("Não foi possível identificar o formato do arquivo.")
+    # 3. Tentar CSV robusto
+    try:
+        return pd.read_csv(arquivo, sep=';', encoding='latin-1')
+    except:
+        pass
+
+    try:
+        return pd.read_csv(arquivo, sep=',', encoding='utf-8')
+    except:
+        pass
+
+    try:
+        return pd.read_csv(arquivo, sep=None, engine='python')
+    except:
+        pass
+
+    raise Exception("Formato do arquivo não suportado. Verifique se é CSV, Excel ou HTML válido.")
 
 def filtrar_transito(df):
     return df[df['cid'].str.startswith('V', na=False)]
