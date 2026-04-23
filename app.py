@@ -14,50 +14,43 @@ arquivo = st.file_uploader("📂 Envie o CSV do TabNet", type=["csv"])
 # FUNÇÃO DE LEITURA ROBUSTA
 # =========================
 def carregar_dados(uploaded_file):
+    import pandas as pd
     import io
 
-    # Lê conteúdo bruto
     content = uploaded_file.read().decode("latin1")
+    linhas = content.splitlines()
 
-    # Debug (MOSTRA no app)
-    st.subheader("🔍 Conteúdo bruto (início do arquivo)")
-    st.text(content[:500])
+    # Encontrar onde começa o cabeçalho real
+    inicio = None
+    for i, linha in enumerate(linhas):
+        if "Ano" in linha and "Casos" in linha:
+            inicio = i
+            break
 
-    # Detecta automaticamente separador
-    if ";" in content:
-        sep = ";"
-    elif "," in content:
-        sep = ","
-    elif "\t" in content:
-        sep = "\t"
-    else:
-        st.error("❌ Não foi possível identificar o separador do CSV")
-        return None
+    if inicio is None:
+        raise ValueError("❌ Não encontrou cabeçalho 'Ano / Casos'")
 
-    st.info(f"Separador detectado: '{sep}'")
-
-    # Reconstrói arquivo para leitura
-    data = io.StringIO(content)
+    # Ler apenas a parte útil
+    dados = "\n".join(linhas[inicio:])
 
     df = pd.read_csv(
-        data,
-        sep=sep,
-        engine="python",
-        on_bad_lines="skip"
+        io.StringIO(dados),
+        sep=r"\s+",
+        engine="python"
     )
 
-    # Limpeza
-    df = df.loc[:, ~df.columns.str.contains("^Unnamed")]
-    df.columns = df.columns.str.strip()
-    df.replace("-", pd.NA, inplace=True)
-    df.dropna(how="all", inplace=True)
+    # Renomear colunas corretamente
+    df.columns = ["Ano", "Casos"]
 
-    # Verificação crítica
-    if df.shape[1] == 0:
-        st.error("❌ Arquivo não contém colunas válidas")
-        return None
+    # Remover linha "Total"
+    df = df[df["Ano"] != "Total"]
 
-    st.success("✅ CSV lido com sucesso")
+    # Converter tipos
+    df["Ano"] = pd.to_numeric(df["Ano"], errors="coerce")
+    df["Casos"] = pd.to_numeric(df["Casos"], errors="coerce")
+
+    df.dropna(inplace=True)
+
     return df
 # =========================
 # TRANSFORMAÇÃO
