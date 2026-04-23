@@ -90,27 +90,19 @@ if arquivo is not None:
     st.subheader("📄 Preview dos dados")
     st.write(df.head())
 
-    df_long = transformar_para_longo(df)
-
+    df = preparar_dados_tabnet(df)
     # =========================
     # GRÁFICO DE TENDÊNCIA
     # =========================
-    st.subheader("📈 Tendência Temporal")
-
-    df_long["Categoria"] = pd.to_numeric(df_long["Categoria"], errors="coerce")
-    df_long = df_long.dropna()
-
-    df_total = df_long.groupby("Categoria")["Casos"].sum().reset_index()
-
     fig, ax = plt.subplots()
-    sns.lineplot(data=df_total, x="Categoria", y="Casos", marker="o", ax=ax)
 
+    sns.lineplot(data=df, x="Ano", y="Casos", marker="o", ax=ax)
+
+    ax.set_title("Leptospirose - DF")
     ax.set_xlabel("Ano")
     ax.set_ylabel("Casos")
-    ax.set_title("Leptospirose - DF")
 
     st.pyplot(fig)
-
     # =========================
     # PERFIL
     # =========================
