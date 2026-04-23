@@ -65,43 +65,26 @@ def tratar_tabnet(arquivo):
 
 def carregar_estruturado(arquivo):
     import pandas as pd
+    import io
 
-    # Ler primeiros bytes para identificar tipo
-    inicio = arquivo.read(500).decode(errors='ignore')
-    arquivo.seek(0)
+    conteudo = arquivo.getvalue().decode('latin-1')
 
-    # 1. Detectar HTML (TABNET às vezes exporta assim)
-    if "<table" in inicio.lower():
-        try:
-            dfs = pd.read_html(arquivo)
-            return dfs[0]
-        except:
-            pass
+    linhas = conteudo.splitlines()
 
-    # 2. Detectar Excel binário
-    try:
-        return pd.read_excel(arquivo)
-    except:
-        pass
+    # Encontrar linha onde começa a tabela (header real)
+    inicio_dados = 0
+    for i, linha in enumerate(linhas):
+        if "Munic" in linha or "Município" in linha:
+            inicio_dados = i
+            break
 
-    # 3. Tentar CSV robusto
-    try:
-        return pd.read_csv(arquivo, sep=';', encoding='latin-1')
-    except:
-        pass
+    # Reconstruir apenas a parte útil
+    dados_limpos = "\n".join(linhas[inicio_dados:])
 
-    try:
-        return pd.read_csv(arquivo, sep=',', encoding='utf-8')
-    except:
-        pass
+    # Ler como CSV
+    df = pd.read_csv(io.StringIO(dados_limpos), sep=';')
 
-    try:
-        return pd.read_csv(arquivo, sep=None, engine='python')
-    except:
-        pass
-
-    raise Exception("Formato do arquivo não suportado. Verifique se é CSV, Excel ou HTML válido.")
-
+    return df
 def filtrar_transito(df):
     return df[df['cid'].str.startswith('V', na=False)]
 
