@@ -163,20 +163,24 @@ df_filtrado["proporcao"] = df_filtrado[y_col] / total * 100
 # -----------------------------
 # TOP 10
 # -----------------------------
-st.subheader("🔝 Top 10")
+st.subheader("📅 Distribuição por mês")
 
-if "categoria" in df.columns:
-    top10 = (
-        df_filtrado.groupby("categoria")["obitos"]
-        .sum()
-        .sort_values(ascending=False)
-        .head(10)
-        .reset_index()
-    )
-    st.dataframe(top10)
-else:
-    top10 = df_filtrado.sort_values(by=y_col, ascending=False).head(10)
-    st.dataframe(top10)
+ordem_meses = [
+    "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+    "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
+]
+
+df_mes = (
+    df.groupby("categoria")["obitos"]
+    .sum()
+    .reset_index()
+)
+
+# ordenar corretamente
+df_mes["categoria"] = pd.Categorical(df_mes["categoria"], categories=ordem_meses, ordered=True)
+df_mes = df_mes.sort_values("categoria")
+
+st.dataframe(df_mes)
 
 # -----------------------------
 # ALERTA
