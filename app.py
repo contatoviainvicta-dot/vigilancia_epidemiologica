@@ -74,6 +74,26 @@ except Exception as e:
     st.error(f"Erro ao carregar arquivo: {e}")
     st.stop()
 
+def transformar_tabnet(df):
+    df = df.copy()
+
+    # Remover linhas de total
+    df = df[~df.iloc[:, 0].astype(str).str.contains("Total", case=False)]
+
+    # Renomear primeira coluna
+    df = df.rename(columns={df.columns[0]: "categoria"})
+
+    # Converter wide → long
+    df_long = df.melt(
+        id_vars="categoria",
+        var_name="ano",
+        value_name="obitos"
+    )
+
+    # Limpar dados
+    df_long['obitos'] = pd.to_numeric(df_long['obitos'], errors='coerce')
+
+    return df_long.dropna()
 # -----------------------------
 # VISÃO INICIAL
 # -----------------------------
