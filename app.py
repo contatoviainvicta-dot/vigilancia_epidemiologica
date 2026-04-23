@@ -62,7 +62,7 @@ def carregar_dados(arquivo):
 
     return df
 
-
+print(open("data/leptospirose.csv").read())
 # =========================
 # TRANSFORMA PARA FORMATO LONGO
 # =========================
