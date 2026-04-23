@@ -29,8 +29,10 @@ conteudo_bytes = arquivo.getvalue()
 # FUNÇÃO PRINCIPAL DE LEITURA
 # -----------------------------
 def carregar_dados(conteudo_bytes, nome_arquivo):
-    
-    # 1. Tentar Excel direto
+    import pandas as pd
+    import io
+
+    # 1. Tentar Excel
     try:
         df = pd.read_excel(io.BytesIO(conteudo_bytes))
         if df.shape[1] > 1:
@@ -38,46 +40,40 @@ def carregar_dados(conteudo_bytes, nome_arquivo):
     except:
         pass
 
-    # 2. Decodificar texto
-    texto = None
+    # 2. Decodificar
     for enc in ['latin-1', 'utf-8', 'cp1252']:
         try:
             texto = conteudo_bytes.decode(enc)
             break
         except:
             continue
-
-    if texto is None:
-        raise Exception("Não foi possível decodificar o arquivo.")
+    else:
+        raise Exception("Erro ao decodificar arquivo")
 
     linhas = texto.splitlines()
 
-    # 3. Detectar TABNET (pular cabeçalho sujo)
-    inicio_dados = 0
+    # 3. Detectar início real da tabela
+    inicio_dados = None
+
     for i, linha in enumerate(linhas):
-        if "Munic" in linha or "Município" in linha:
-            inicio_dados = i
-            break
+        # regra: linha com separador e mais de 1 coluna
+        if linha.count(';') >= 1:
+            partes = linha.split(';')
+            if len(partes) >= 2:
+                inicio_dados = i
+                break
+
+    if inicio_dados is None:
+        raise Exception("Não foi possível localizar a tabela no arquivo.")
 
     dados_limpos = "\n".join(linhas[inicio_dados:])
 
-    # 4. Tentar CSV com ;
+    # 4. Ler CSV
     try:
         df = pd.read_csv(io.StringIO(dados_limpos), sep=';')
-        if df.shape[1] > 1:
-            return df
-    except:
-        pass
-
-    # 5. Tentar CSV com ,
-    try:
-        df = pd.read_csv(io.StringIO(dados_limpos), sep=',')
-        if df.shape[1] > 1:
-            return df
-    except:
-        pass
-
-    raise Exception("Formato não reconhecido.")
+        return df
+    except Exception as e:
+        raise Exception(f"Erro ao ler CSV após limpeza: {e}")
 
 # -----------------------------
 # CARREGAMENTO
