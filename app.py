@@ -77,10 +77,7 @@ except Exception as e:
 # -----------------------------
 # VISÃO INICIAL
 # -----------------------------
-st.subheader("🔎 Dados")
-st.write("Shape:", df.shape)
-st.write("Colunas:", df.columns.tolist())
-st.dataframe(df.head())
+
 
 colunas = df.columns.tolist()
 
